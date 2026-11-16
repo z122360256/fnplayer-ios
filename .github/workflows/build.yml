@@ -3,12 +3,9 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -20,10 +17,10 @@ jobs:
           xcodegen --version
       - name: Generate Xcode project
         run: xcodegen generate
-      - name: Verify product name
+      - name: Verify PRODUCT_NAME
         run: |
-          echo "=== 检查 PRODUCT_NAME ==="
-          grep -n "PRODUCT_NAME" FnPlayer.xcodeproj/project.pbxproj | head -20 || true
+          echo "=== PRODUCT_NAME in pbxproj ==="
+          grep -n "PRODUCT_NAME" FnPlayer.xcodeproj/project.pbxproj | head -10 || true
       - name: Build (unsigned)
         run: |
           set -o pipefail
