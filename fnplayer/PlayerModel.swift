@@ -10,6 +10,7 @@ final class PlayerModel: NSObject, ObservableObject {
     private var cursor = 0
     private var observer: Any?
     private var lastTime: Double = 0
+    private var endObserver: NSObjectProtocol?
     func play(url: URL) {
         cursor = 0
         danmaku.clearAll()
@@ -30,33 +31,47 @@ final class PlayerModel: NSObject, ObservableObject {
                 self.tick()
             }
         }
-        NotificationCenter.default.addObserver(self, selector: #selector(itemEnded),
-                                               name: .AVPlayerItemDidPlayToEndTime, object: item)
+        if let old = endObserver {
+            NotificationCenter.default.removeObserver(old)
+        }
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            self?.isPlaying = false
+        }
     }
-    @objc private func itemEnded() { isPlaying = false }
     func togglePlay() {
         if player.timeControlStatus == .playing {
-            player.pause(); isPlaying = false
+            player.pause()
+            isPlaying = false
         } else {
-            player.play(); isPlaying = true
+            player.play()
+            isPlaying = true
         }
     }
     func seek(to seconds: Double) {
         let back = seconds < lastTime - 1
         player.seek(to: CMTime(seconds: max(0, seconds), preferredTimescale: 600))
-        if back { cursor = 0; danmaku.clearAll() }
+        if back {
+            cursor = 0
+            danmaku.clearAll()
+        }
         lastTime = seconds
     }
     func tick() {
         let hasTime = danmus.contains { $0.time > 0 }
         if hasTime {
             while cursor < danmus.count && danmus[cursor].time <= currentTime {
-                emitItem(danmus[cursor]); cursor += 1
+                emitItem(danmus[cursor])
+                cursor += 1
             }
         } else {
             let idx = Int(currentTime / 1.2)
             while cursor < min(idx, danmus.count) {
-                emitItem(danmus[cursor]); cursor += 1
+                emitItem(danmus[cursor])
+                cursor += 1
             }
         }
         lastTime = currentTime
@@ -66,10 +81,10 @@ final class PlayerModel: NSObject, ObservableObject {
     }
     func send(_ text: String, cfg: DanmuSettings) {
         danmaku.emit(text: text, hexColor: "#FFFFFF", position: "scroll")
-        Task { await APIClient.sendDanmu(text: text, cfg: cfg) }
+        Task { _ = await DanmuAPI.send(text: text, cfg: cfg) }
     }
     func loadDanmus(cfg: DanmuSettings) async {
-        let list = await APIClient.fetchDanmus(apiBase: cfg.apiBase, roomId: cfg.roomId, protocolName: cfg.protocolName)
+        let list = await DanmuAPI.fetch(apiBase: cfg.apiBase, roomId: cfg.roomId)
         danmus = list.sorted { $0.time < $1.time }
         cursor = 0
     }
