@@ -4,30 +4,19 @@ options:
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
-settings:
-  base:
-    SWIFT_VERSION: "5.9"
-    PRODUCT_NAME: FnPlayer
-    PRODUCT_BUNDLE_IDENTIFIER: com.fnplayer.app
-    MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "1"
-    GENERATE_INFOPLIST_FILE: NO
-    DEVELOPMENT_TEAM: ""
-    CODE_SIGN_STYLE: Manual
 targets:
   FnPlayer:
     type: application
     platform: iOS
-    productName: FnPlayer
     sources:
       - path: fnplayer
-        excludes:
-          - "Info.plist"
+    settings:
+      base:
+        SWIFT_VERSION: "5.9"
     info:
       path: fnplayer/Info.plist
       properties:
         CFBundleDisplayName: 飞牛弹幕
-        CFBundleName: FnPlayer
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
         UILaunchScreen: {}
