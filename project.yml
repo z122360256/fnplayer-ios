@@ -1,0 +1,29 @@
+name: FnPlayer
+options:
+  bundleIdPrefix: com.fnplayer
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+targets:
+  FnPlayer:
+    type: application
+    platform: iOS
+    sources:
+      - path: fnplayer
+    settings:
+      base:
+        SWIFT_VERSION: "5.9"
+    info:
+      path: fnplayer/Info.plist
+      properties:
+        CFBundleDisplayName: 飞牛弹幕
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        ITSAppUsesNonExemptEncryption: false
