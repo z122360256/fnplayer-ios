@@ -4,21 +4,41 @@ options:
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
+  generateEmptyDirectories: false
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    ALWAYS_SEARCH_USER_PATHS: NO
 targets:
   FnPlayer:
     type: application
     platform: iOS
+    productName: FnPlayer
     sources:
       - path: fnplayer
+        excludes:
+          - "Info.plist"
     settings:
       base:
+        PRODUCT_NAME: FnPlayer
+        PRODUCT_BUNDLE_IDENTIFIER: com.fnplayer.FnPlayer
+        INFOPLIST_FILE: fnplayer/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
         SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
     info:
       path: fnplayer/Info.plist
       properties:
         CFBundleDisplayName: 飞牛弹幕
-        CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "1"
+        CFBundleName: FnPlayer
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundlePackageType: APPL
+        CFBundleShortVersionString: "1.1.0"
+        CFBundleVersion: "2"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -26,4 +46,6 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: 需要访问局域网内的飞牛 NAS 与弹幕服务
         ITSAppUsesNonExemptEncryption: false

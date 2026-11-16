@@ -3,16 +3,28 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: macos-14
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install XcodeGen (direct download)
+        run: |
+          curl -sL https://github.com/yonaskolb/XcodeGen/releases/latest/download/xcodegen.zip -o xcodegen.zip
+          unzip -q xcodegen.zip
+          sudo mv xcodegen/bin/xcodegen /usr/local/bin/xcodegen
+          xcodegen --version
       - name: Generate Xcode project
         run: xcodegen generate
-      - name: Build (unsigned, for sideloading)
+      - name: Verify product name
+        run: |
+          echo "=== 检查 PRODUCT_NAME ==="
+          grep -n "PRODUCT_NAME" FnPlayer.xcodeproj/project.pbxproj | head -20 || true
+      - name: Build (unsigned)
         run: |
           set -o pipefail
           xcodebuild -project FnPlayer.xcodeproj \
@@ -20,13 +32,17 @@ jobs:
             -sdk iphoneos \
             -configuration Release \
             -derivedDataPath build \
+            PRODUCT_NAME=FnPlayer \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO | tail -n 80
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tail -n 100
       - name: Package IPA
         run: |
+          APP_PATH=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" -type d | head -1)
+          echo "APP_PATH=$APP_PATH"
+          if [ -z "$APP_PATH" ]; then echo "未找到 .app"; exit 1; fi
           mkdir -p Payload
-          cp -R build/Build/Products/Release-iphoneos/FnPlayer.app Payload/
+          cp -R "$APP_PATH" Payload/
           zip -qry FnPlayer-unsigned.ipa Payload
           ls -lh FnPlayer-unsigned.ipa
       - name: Upload artifact
