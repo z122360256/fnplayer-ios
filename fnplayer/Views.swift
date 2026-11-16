@@ -9,25 +9,33 @@ func fmtTime(_ t: Double) -> String {
 struct LoginView: View {
     @ObservedObject var state: AppState
     @State private var base = UserDefaults.standard.string(forKey: "fn_base") ?? ""
-    @State private var user = ""
+    @State private var user = UserDefaults.standard.string(forKey: "fn_user") ?? ""
     @State private var pass = ""
     @State private var directURL = ""
     @State private var msg = ""
     @State private var busy = false
+    @State private var showHelp = false
     var body: some View {
         Form {
-            Section("连接飞牛 NAS") {
-                TextField("服务地址 http://192.168.1.10:5666", text: $base)
+            Section {
+                TextField("服务地址，如 171.213.177.61:7799", text: $base)
                     .keyboardType(.URL).autocorrectionDisabled().textInputAutocapitalization(.never)
                 TextField("账号", text: $user)
-                SecureField("密码", text: $pass)
-                Button(busy ? "连接中…" : "连接") {
+                    .autocorrectionDisabled().textInputAutocapitalization(.never)
+                SecureField("密码（飞牛影视登录密码）", text: $pass)
+                Button(busy ? "连接中…" : "连接飞牛影视") {
                     Task { await connect() }
                 }
                 .disabled(busy)
                 if !msg.isEmpty {
-                    Text(msg).font(.footnote).foregroundColor(.secondary)
+                    Text(msg)
+                        .font(.footnote)
+                        .foregroundColor(msg.contains("成功") ? .green : .orange)
                 }
+            } header: {
+                Text("连接飞牛影视")
+            } footer: {
+                Text("地址填 IP:端口 即可，App 会自动补 http://。端口通常是 7799（影视）或 5666（系统）。")
             }
             Section("或直接播放视频链接") {
                 TextField("http://nas/video.mp4 或 .m3u8", text: $directURL)
@@ -36,22 +44,35 @@ struct LoginView: View {
             }
             Section {
                 Button("弹幕设置") { state.page = .settings }
+                Button("连接不上？看看说明") { showHelp = true }
             }
         }
-        .navigationTitle("飞牛弹幕")
+        .navigationTitle("飞牛弹幕播放器")
+        .alert("连接说明", isPresented: $showHelp) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text("""
+            1. 地址只填 IP:端口，例如 171.213.177.61:7799
+            2. 账号密码用「飞牛影视」的登录账号（不是 fnOS 系统管理员账号）
+            3. 手机需能访问该地址（同一网络或已做端口映射）
+            4. 若提示"账号或密码错误"，请到飞牛影视网页端确认能登录
+            """)
+        }
     }
     private func connect() async {
         busy = true
-        msg = "连接中…"
-        var b = base.trimmingCharacters(in: .whitespacesAndNewlines)
-        while b.hasSuffix("/") { b.removeLast() }
-        let r = await NASClient.login(base: b, user: user, pass: pass)
+        msg = "正在连接…"
+        let r = await FnAPI.login(base: base, user: user, pass: pass)
         if r.ok {
+            let b = FnAPI.normalizeBase(base)
             state.baseURL = b
             state.token = r.token
+            state.serverVersion = r.serverVersion
             UserDefaults.standard.set(b, forKey: "fn_base")
+            UserDefaults.standard.set(user, forKey: "fn_user")
             UserDefaults.standard.set(r.token, forKey: "fn_token")
-            msg = "连接成功 ✓"
+            UserDefaults.standard.set(r.serverVersion, forKey: "fn_ver")
+            msg = "连接成功 ✓ 服务端 \(r.serverVersion)"
             state.page = .library
         } else {
             msg = r.message
@@ -59,7 +80,12 @@ struct LoginView: View {
         busy = false
     }
     private func playDirect() {
-        guard let u = URL(string: directURL.trimmingCharacters(in: .whitespaces)) else { return }
+        var s = directURL.trimmingCharacters(in: .whitespaces)
+        if !s.lowercased().hasPrefix("http") { s = "http://" + s }
+        guard let u = URL(string: s) else {
+            msg = "链接格式不正确"
+            return
+        }
         state.playerURL = u
         state.playerTitle = u.lastPathComponent
         state.page = .player
@@ -68,71 +94,117 @@ struct LoginView: View {
 // MARK: - 媒体库
 struct LibraryView: View {
     @ObservedObject var state: AppState
+    @State private var libraries: [NASItem] = []
     @State private var items: [NASItem] = []
-    @State private var path = ""
+    @State private var currentLib: NASItem?
     @State private var loading = false
     @State private var err = ""
     var body: some View {
-        List(items) { it in
-            Button { Task { await tap(it) } } label: {
-                HStack(spacing: 12) {
-                    Text(it.isDir ? "📁" : (NASClient.isVideoFile(it.name) ? "🎬" : "📄"))
-                        .font(.title3)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(it.name).lineLimit(1).foregroundColor(.primary)
-                        if !it.isDir && it.url == nil {
-                            Text("将尝试默认接口播放").font(.caption2).foregroundColor(.secondary)
+        List {
+            if currentLib != nil {
+                Section {
+                    Button {
+                        currentLib = nil
+                        items = []
+                    } label: {
+                        Label("返回媒体库列表", systemImage: "chevron.left")
+                    }
+                }
+            }
+            if currentLib == nil {
+                Section("媒体库") {
+                    if libraries.isEmpty && !loading {
+                        Text(err.isEmpty ? "暂无媒体库" : err)
+                            .font(.footnote).foregroundColor(.secondary)
+                    }
+                    ForEach(libraries) { lib in
+                        Button {
+                            Task { await openLib(lib) }
+                        } label: {
+                            HStack {
+                                Text("📚")
+                                Text(lib.name).foregroundColor(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption).foregroundColor(.secondary)
+                            }
                         }
                     }
-                    Spacer()
+                }
+            } else {
+                Section(currentLib?.name ?? "") {
+                    if items.isEmpty && !loading {
+                        Text("该库暂无内容，或接口格式待适配")
+                            .font(.footnote).foregroundColor(.secondary)
+                    }
+                    ForEach(items) { it in
+                        Button {
+                            Task { await tap(it) }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text(it.isDir ? "📁" : "🎬").font(.title3)
+                                Text(it.name).lineLimit(1).foregroundColor(.primary)
+                                Spacer()
+                            }
+                        }
+                    }
                 }
             }
         }
-        .overlay {
-            if loading { ProgressView() }
-            if !err.isEmpty && items.isEmpty {
-                Text(err).font(.footnote).foregroundColor(.secondary).padding()
-            }
-        }
+        .overlay { if loading { ProgressView() } }
         .navigationTitle("媒体库")
         .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                Button("退出") { state.page = .login }
+                Button("退出") {
+                    state.token = ""
+                    state.page = .login
+                }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("⚙️") { state.page = .settings }
             }
         }
-        .task { await load() }
+        .task { await loadLibraries() }
     }
-    private func load() async {
+    private func loadLibraries() async {
+        guard libraries.isEmpty else { return }
         loading = true
         err = ""
-        let r = await NASClient.list(base: state.baseURL, token: state.token, path: path)
-        items = r
+        let r = await FnAPI.fetchLibraries(base: state.baseURL, token: state.token)
+        libraries = r
         if r.isEmpty {
-            err = "未能读取媒体库列表（飞牛私有接口未完全公开，持续适配中）。可先回首页用「播放直链」播放 NAS 视频。"
+            err = "未能读取媒体库。可能该账号无媒体库权限，或服务端接口版本不同。\n可先回首页用「播放直链」播放。"
         }
+        loading = false
+    }
+    private func openLib(_ lib: NASItem) async {
+        currentLib = lib
+        loading = true
+        let r = await FnAPI.fetchItems(base: state.baseURL, token: state.token, libraryGuid: lib.guid)
+        items = r
         loading = false
     }
     private func tap(_ it: NASItem) async {
         if it.isDir {
-            path = it.path
-            await load()
+            loading = true
+            let r = await FnAPI.fetchItems(base: state.baseURL, token: state.token, libraryGuid: it.guid)
+            if !r.isEmpty { items = r }
+            loading = false
+            return
+        }
+        loading = true
+        var url = it.url
+        if url == nil, !it.guid.isEmpty {
+            url = await FnAPI.resolvePlayURL(base: state.baseURL, token: state.token, guid: it.guid)
+        }
+        loading = false
+        if let u = url {
+            state.playerURL = u
+            state.playerTitle = it.name
+            state.page = .player
         } else {
-            var url = it.url
-            if url == nil {
-                let enc = it.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? it.path
-                var s = "\(state.baseURL)/api/v1/file/download?path=\(enc)"
-                if !state.token.isEmpty { s += "&token=\(state.token)" }
-                url = URL(string: s)
-            }
-            if let u = url {
-                state.playerURL = u
-                state.playerTitle = it.name
-                state.page = .player
-            }
+            err = "无法解析播放地址"
         }
     }
 }
@@ -142,6 +214,7 @@ struct PlayerView: View {
     @StateObject private var model = PlayerModel()
     @State private var sendText = ""
     @State private var started = false
+    @State private var loadMsg = ""
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
@@ -158,9 +231,7 @@ struct PlayerView: View {
                     set: { f in model.seek(to: f * model.duration) }
                 ))
                 Text(fmtTime(model.duration)).font(.caption).monospacedDigit()
-                Button {
-                    model.togglePlay()
-                } label: {
+                Button { model.togglePlay() } label: {
                     Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                 }
             }
@@ -170,8 +241,7 @@ struct PlayerView: View {
                 Button {
                     state.danmuSettings.enabled.toggle()
                 } label: {
-                    Text(state.danmuSettings.enabled ? "弹幕 开" : "弹幕 关")
-                        .font(.footnote)
+                    Text(state.danmuSettings.enabled ? "弹幕 开" : "弹幕 关").font(.footnote)
                 }
                 TextField("发个弹幕…", text: $sendText)
                     .textFieldStyle(.roundedBorder)
@@ -181,6 +251,9 @@ struct PlayerView: View {
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 10)
+            if !loadMsg.isEmpty {
+                Text(loadMsg).font(.caption2).foregroundColor(.secondary).padding(.bottom, 6)
+            }
             Spacer()
         }
         .navigationTitle(state.playerTitle.isEmpty ? "播放" : state.playerTitle)
@@ -198,14 +271,22 @@ struct PlayerView: View {
             }
         }
         .task {
-            await model.loadDanmus(cfg: state.danmuSettings)
+            let cfg = state.danmuSettings
+            if cfg.apiBase.isEmpty {
+                loadMsg = "未配置弹幕 API（可在设置页填写）"
+                return
+            }
+            await model.loadDanmus(cfg: cfg)
+            loadMsg = model.danmus.isEmpty
+                ? "弹幕接口无数据（已连接 \(cfg.apiBase)）"
+                : "已加载 \(model.danmus.count) 条弹幕"
         }
     }
     private func sendDanmu() {
         let t = sendText.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { return }
-        if state.danmuSettings.apiBase.isEmpty {
-            sendText = ""
+        guard !state.danmuSettings.apiBase.isEmpty else {
+            loadMsg = "请先在设置页配置弹幕 API 地址"
             return
         }
         model.send(t, cfg: state.danmuSettings)
@@ -228,8 +309,8 @@ struct SettingsView: View {
     @State private var testing = false
     var body: some View {
         Form {
-            Section("弹幕 API（Docker danmu-api）") {
-                TextField("API 地址 http://192.168.1.10:8080", text: $s.apiBase)
+            Section {
+                TextField("API 地址，如 http://192.168.1.10:8080", text: $s.apiBase)
                     .keyboardType(.URL).autocorrectionDisabled().textInputAutocapitalization(.never)
                 TextField("房间 / 视频 ID", text: $s.roomId)
                 TextField("昵称", text: $s.nickname)
@@ -244,6 +325,10 @@ struct SettingsView: View {
                 if !msg.isEmpty {
                     Text(msg).font(.footnote).foregroundColor(.secondary)
                 }
+            } header: {
+                Text("弹幕 API（Docker danmu-api）")
+            } footer: {
+                Text("需自行部署 danmu-api 服务；填好地址后点测试连通，再保存。")
             }
             Section("弹幕显示") {
                 Toggle("启用弹幕", isOn: $s.enabled)
@@ -276,7 +361,7 @@ struct SettingsView: View {
                     msg = "已保存 ✓"
                 }
                 Button("返回") {
-                    state.page = state.playerURL == nil ? .login : .library
+                    state.page = state.token.isEmpty ? .login : .library
                 }
             }
         }
@@ -286,17 +371,19 @@ struct SettingsView: View {
         testing = true
         var b = s.apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
         while b.hasSuffix("/") { b.removeLast() }
-        guard let u = URL(string: b) else {
-            msg = "地址无效"
+        guard !b.isEmpty, let u = URL(string: b) else {
+            msg = "请填写有效地址"
             testing = false
             return
         }
         do {
-            let (_, resp) = try await APIClient.session.data(from: u)
+            var req = URLRequest(url: u)
+            req.timeoutInterval = 12
+            let (_, resp) = try await FnAPI.session.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             msg = "连接成功 HTTP \(code) ✓"
         } catch {
-            msg = "失败：\(error.localizedDescription)"
+            msg = "失败：\(FnAPI.friendlyError(error))"
         }
         testing = false
     }
