@@ -1,0 +1,35 @@
+name: Build IPA
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen (direct download)
+        run: |
+          curl -sL https://github.com/yonaskolb/XcodeGen/releases/latest/download/xcodegen.zip -o xcodegen.zip
+          unzip -q xcodegen.zip
+          sudo mv xcodegen/bin/xcodegen /usr/local/bin/xcodegen
+          xcodegen --version
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild -project FnPlayer.xcodeproj -scheme FnPlayer -sdk iphoneos \
+            -configuration Release -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO 2>&1 | tail -n 60
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/FnPlayer.app Payload/
+          zip -qry FnPlayer-unsigned.ipa Payload
+          ls -lh FnPlayer-unsigned.ipa
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FnPlayer-unsigned-ipa
+          path: FnPlayer-unsigned.ipa
+          retention-days: 30
