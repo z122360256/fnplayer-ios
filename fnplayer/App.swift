@@ -23,13 +23,6 @@ struct DanmuSettings: Codable {
         }
     }
 }
-struct NASItem: Identifiable {
-    let id = UUID()
-    let name: String
-    let isDir: Bool
-    let path: String
-    let url: URL?
-}
 @main
 struct FnPlayerApp: App {
     var body: some Scene {
@@ -40,6 +33,7 @@ final class AppState: ObservableObject {
     @Published var page: AppPage = .login
     @Published var baseURL: String = UserDefaults.standard.string(forKey: "fn_base") ?? ""
     @Published var token: String = UserDefaults.standard.string(forKey: "fn_token") ?? ""
+    @Published var serverVersion: String = UserDefaults.standard.string(forKey: "fn_ver") ?? ""
     @Published var playerURL: URL?
     @Published var playerTitle: String = ""
     @Published var danmuSettings: DanmuSettings = DanmuSettings.load()
